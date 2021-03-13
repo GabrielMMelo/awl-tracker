@@ -89,3 +89,10 @@ ROBOTSTXT_OBEY = True
 
 # Enconding
 FEED_EXPORT_ENCODING = 'utf-8'
+FEED_URI = 'data/raw/awl3.json'
+FEED_EXPORTERS = {
+    'jsonlines': 'scrapy.exporters.JsonItemExporter'
+}
+
+# Logging
+LOG_ENABLED = False
