@@ -17,12 +17,15 @@ class ETL:
 class Extract(ETL):
     def __init__(self, spider=spider):
         self.spider = spider
+        self.settings = get_project_settings()
 
     def upload_to_bucket(self):
         pass
 
     def run(self):
-        process = CrawlerProcess(get_project_settings())
+        now = datetime.datetime.now()
+        self.settings['FEED_URI'] = self.settings['FEED_URI'].replace('.json', '_{}.json'.format(now))
+        process = CrawlerProcess(self.settings)
         process.crawl(self.spider)
         process.start()
 
@@ -92,5 +95,5 @@ class Load(ETL):
 
     def run(self):
         ### Output csv
-        self.df.to_csv(self.DATA_PATH.joinpath('preparation/preparation3.csv'), sep=';', index=False, mode='a', header='false')
+        self.df.to_csv(self.DATA_PATH.joinpath('preparation/preparation.csv'), sep=';', index=False, mode='a', header='false')
 
