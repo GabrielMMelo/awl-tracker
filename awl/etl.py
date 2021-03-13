@@ -1,21 +1,36 @@
 import datetime
 from functools import reduce
 import locale
+import os
 from pathlib import Path
 
+from dotenv import load_dotenv
 import pandas as pd
 from scrapy.crawler import CrawlerProcess
 from scrapy.utils.project import get_project_settings
 
-from awl.spiders.awl import AWLSpider as spider
+from awl.spiders.awl import AWLSpider
+from services.gcp.storage import GCPStorage
+
+
+load_dotenv(dotenv_path=".env")
 
 
 class ETL:
     DATA_PATH = Path().joinpath('data/')
+    storage = GCPStorage()
+    _bucket_name = os.getenv('BUCKET_NAME')
+
+    def _to_gcp(self, source_path, target_path):
+        self.storage.upload_blob(
+            self._bucket_name,
+            source_path,
+            target_path
+        )
 
 
 class Extract(ETL):
-    def __init__(self, spider=spider):
+    def __init__(self, spider=AWLSpider):
         self.spider = spider
         self.settings = get_project_settings()
 
@@ -23,13 +38,18 @@ class Extract(ETL):
         pass
 
     def run(self):
+        os.remove(self.settings["FEED_URI"])
         now = datetime.datetime.now()
-        self.settings['FEED_URI'] = self.settings['FEED_URI'].replace('.json', '_{}.json'.format(now))
         process = CrawlerProcess(self.settings)
         process.crawl(self.spider)
         process.start()
 
-        return get_project_settings()["FEED_URI"]
+        target_path = self.settings['FEED_URI'] \
+            .replace('data/', '') \
+            .replace('.json', '_{}.json'.format(datetime.datetime.strftime(now, '%Y-%m-%d_%H:%M')))
+
+        self._to_gcp(self.settings['FEED_URI'], target_path)
+        return self.settings["FEED_URI"]
 
 
 class Transform(ETL):
@@ -46,16 +66,17 @@ class Transform(ETL):
         return '/'.join([str(x), str(datetime.datetime.strptime(y, '%B').month if len(x) <= 2 else str(y))])
 
     def _transform(self):
-        ### Added date
+        # Added date
         # set locale to extract month number from its portuguese name
         pattern = 'Item\ adicionado\ (..?)\ de\ (\w*)\ de\ (....)'
-        self.df['added_date'] = [reduce(self.concat_date, row) for row in self.df['added_date'].str.extract(pattern).values.tolist()]
+        self.df['added_date'] = [reduce(self.concat_date, row)
+                                 for row in self.df['added_date'].str.extract(pattern).values.tolist()]
 
-        ### Review stars
+        # Review stars
         pattern = '(.\..)\ .*'
         self.df['review_stars'] = self.df['review_stars'].str.extract(pattern)
 
-        ### Total price
+        # Total price
         # neither sold by Amazon nor external sellers
         filter = (self.df['price'].isna()) & (self.df['sellers_price'].isna())
         self.df.loc[filter, 'total_price'] = -1
@@ -72,14 +93,14 @@ class Transform(ETL):
         filter = (~self.df['price'].isna()) & (self.df['delivery_price'].isna())
         self.df.loc[filter, 'total_price'] = self.df['price']
 
-        ### Availability
+        # Availability
         # df['availability'].loc[~df['availability'].isnull()] = 1
         # df['availability'].fillna(0, inplace=True)
         self.df['availability'] = 1
         filter = (self.df['total_price'] == -1.0)
         self.df.loc[filter, 'availability'] = 0
 
-        ### Reference date
+        # Reference date
         self.df['reference_date'] = datetime.datetime.now()
 
     def run(self):
@@ -92,8 +113,10 @@ class Transform(ETL):
 class Load(ETL):
     def __init__(self, df):
         self.df = df
+        self._target_path = 'out/awl.csv'
 
     def run(self):
-        ### Output csv
-        self.df.to_csv(self.DATA_PATH.joinpath('preparation/preparation.csv'), sep=';', index=False, mode='a', header='false')
+        self.df.to_csv(self.DATA_PATH.joinpath(self._target_path), sep=';', index=False, mode='a', header='false')
+        self._to_gcp(self.DATA_PATH.joinpath(self._target_path), self._target_path)
+
 
