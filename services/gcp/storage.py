@@ -55,6 +55,13 @@ class GCPStorage:
             )
         )
 
+    def upload_from_string(self, bucket_name, content, destination_blob_name, content_type='text/csv'):
+        storage_client = storage.Client.from_service_account_json(self.service_account_path)
+        bucket = storage_client.bucket(bucket_name)
+        blob = bucket.blob(destination_blob_name)
+
+        return blob.upload_from_string(content, content_type)
+
     def enable_versioning(self, bucket_name):
         """Enable versioning for this bucket."""
         # bucket_name = "my-bucket"
