@@ -7,6 +7,13 @@
 #     https://docs.scrapy.org/en/latest/topics/downloader-middleware.html
 #     https://docs.scrapy.org/en/latest/topics/spider-middleware.html
 
+import os
+
+from dotenv import load_dotenv
+
+load_dotenv(dotenv_path="../.env")
+
+
 BOT_NAME = 'awl'
 
 SPIDER_MODULES = ['awl.spiders']
@@ -87,12 +94,16 @@ ROBOTSTXT_OBEY = True
 #HTTPCACHE_IGNORE_HTTP_CODES = []
 #HTTPCACHE_STORAGE = 'scrapy.extensions.httpcache.FilesystemCacheStorage'
 
-# Enconding
+# -- GCS
+# need to set GOOGLE_APPLICATION_CREDENTIALS as an env variable. This must point to your json credentials
+GCS_PROJECT_ID = os.getenv('GCS_PROJECT_ID')
+FEED_URI = os.getenv('FEED_URI')
+
+# -- Enconding
 FEED_EXPORT_ENCODING = 'utf-8'
-FEED_URI = 'data/raw/awl.json'
 FEED_EXPORTERS = {
     'jsonlines': 'scrapy.exporters.JsonItemExporter'
 }
 
-# Logging
-LOG_ENABLED = False
+# -- Logging
+LOG_ENABLED = True
