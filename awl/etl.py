@@ -1,5 +1,6 @@
 import datetime
 from functools import reduce
+from io import StringIO
 import locale
 import os
 from pathlib import Path
@@ -21,45 +22,49 @@ class ETL:
     storage = GCPStorage()
     _bucket_name = os.getenv('BUCKET_NAME')
 
-    def _to_gcp(self, source_path, target_path):
-        self.storage.upload_blob(
+    def _from_gcp(self, source_path):
+        return self.storage.download_blob_as_string(
             self._bucket_name,
-            source_path,
-            target_path
+            source_path
+        )
+
+    def _to_gcp(self, content, destination_path):
+        self.storage.upload_from_string(
+            self._bucket_name,
+            content,
+            destination_path
         )
 
 
 class Extract(ETL):
-    def __init__(self, spider=AWLSpider):
+    def __init__(self, spider=AWLSpider, historical=False):
+        self.historical = historical
         self.spider = spider
         self.settings = get_project_settings()
 
-    def upload_to_bucket(self):
-        pass
-
     def run(self):
-        os.remove(self.settings["FEED_URI"])
-        now = datetime.datetime.now()
+        now = datetime.datetime.now().strftime('%Y-%m-%d_%H:%M')
+        if self.historical:
+            self.settings["FEED_URI"] = self.settings["FEED_URI"].replace('.json', '%s%s%s' % ('_', now, '.json'))
         process = CrawlerProcess(self.settings)
         process.crawl(self.spider)
         process.start()
 
-        target_path = self.settings['FEED_URI'] \
-            .replace('data/', '') \
-            .replace('.json', '_{}.json'.format(datetime.datetime.strftime(now, '%Y-%m-%d_%H:%M')))
-
-        self._to_gcp(self.settings['FEED_URI'], target_path)
         return self.settings["FEED_URI"]
 
 
 class Transform(ETL):
     def __init__(self):
         self.df = None
+        self.df_master = None
+        self._raw_path = 'raw/awl.json'
+        self._interim_path = 'interim/awl.csv'
+        self._master_path = 'master/awl.csv'
         locale.setlocale(locale.LC_TIME, "pt_BR")
 
-    def _read_input(self):
-        print(self.DATA_PATH.joinpath('raw/awl.json'))
-        self.df = pd.read_json(self.DATA_PATH.joinpath('raw/awl.json'))
+    def _read_inputs(self):
+        self.df = pd.read_json(StringIO(self._from_gcp(self._raw_path).decode("utf-8")))
+        self.df_master = pd.read_csv(StringIO(self._from_gcp(self._master_path).decode("utf-8")), sep=";")
 
     @staticmethod
     def concat_date(x, y):
@@ -103,20 +108,26 @@ class Transform(ETL):
         # Reference date
         self.df['reference_date'] = datetime.datetime.now()
 
+        # Join to df_gcp
+        self.df = pd.concat([self.df, self.df_master])
+        self.df.drop_duplicates(subset=['reference_date', 'name'], inplace=True)
+
     def run(self):
-        self._read_input()
+        self._read_inputs()
         self._transform()
+        self._to_gcp(self.df.to_csv(), self._interim_path)
 
         return self.df
 
 
 class Load(ETL):
-    def __init__(self, df):
-        self.df = df
-        self._target_path = 'out/awl.csv'
+    def __init__(self):
+        self.df = None
+        self._interim_path = 'interim/awl.csv'
+        self._master_path = 'master/awl.csv'
 
     def run(self):
-        self.df.to_csv(self.DATA_PATH.joinpath(self._target_path), sep=';', index=False, mode='a', header='false')
-        self._to_gcp(self.DATA_PATH.joinpath(self._target_path), self._target_path)
-
-
+        # fix comma separated file (instead of ;) and drop index column before load it
+        self.df = pd.read_csv(StringIO(self._from_gcp(self._interim_path).decode("utf-8")), sep=",") \
+            .drop(columns=['Unnamed: 0'])
+        self._to_gcp(self.df.to_csv(sep=";"), self._master_path)
