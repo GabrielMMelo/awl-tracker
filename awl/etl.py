@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 import pandas as pd
 from scrapy.crawler import CrawlerProcess
 from scrapy.utils.project import get_project_settings
+from scrapy.settings import Settings
 
 from .spiders.awl import AWLSpider
 from .services.gcp.storage import GCPStorage
@@ -40,7 +41,11 @@ class Extract(ETL):
     def __init__(self, spider=AWLSpider, historical=False):
         self.historical = historical
         self.spider = spider
-        self.settings = get_project_settings()
+        # self.settings = get_project_settings()
+        self.settings = Settings()
+        os.environ['SCRAPY_SETTINGS_MODULE'] = 'awl.settings'
+        settings_module_path = os.environ['SCRAPY_SETTINGS_MODULE']
+        self.settings.setmodule(settings_module_path, priority='project')
 
     def run(self):
         now = datetime.datetime.now().strftime('%Y-%m-%d_%H:%M')
