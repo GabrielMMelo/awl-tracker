@@ -10,8 +10,8 @@ import pandas as pd
 from scrapy.crawler import CrawlerProcess
 from scrapy.utils.project import get_project_settings
 
-from awl.spiders.awl import AWLSpider
-from services.gcp.storage import GCPStorage
+from .spiders.awl import AWLSpider
+from .services.gcp.storage import GCPStorage
 
 
 load_dotenv(dotenv_path=".env")
@@ -60,7 +60,7 @@ class Transform(ETL):
         self._raw_path = 'raw/awl.json'
         self._interim_path = 'interim/awl.csv'
         self._master_path = 'master/awl.csv'
-        locale.setlocale(locale.LC_TIME, "pt_BR")
+        locale.setlocale(locale.LC_TIME, "pt_BR.utf8")
 
     def _read_inputs(self):
         self.df = pd.read_json(StringIO(self._from_gcp(self._raw_path).decode("utf-8")))
